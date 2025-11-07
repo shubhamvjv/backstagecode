@@ -3,17 +3,12 @@ app:
   baseUrl: http://localhost:7007
 
 backend:
-  # Note that the baseUrl should be the URL that the browser and other clients
-  # should use when communicating with the backend, i.e. it needs to be
-  # reachable not just from within the backend host, but from all of your
-  # callers. When its value is "http://localhost:7007", it's strictly private
-  # and can't be reached by others.
+  # Public URL the browser uses to reach the backend
   baseUrl: http://localhost:7007
-  # The listener can also be expressed as a single <host>:<port> string. In this case we bind to
-  # all interfaces, the most permissive setting. The right value depends on your specific deployment.
+  # Bind to all interfaces in production container or host
   listen: ':7007'
 
-  # config options: https://node-postgres.com/apis/client
+  # Example Postgres config for a production deployment (adjust as needed)
   database:
     client: pg
     connection:
@@ -21,11 +16,8 @@ backend:
       port: ${POSTGRES_PORT}
       user: ${POSTGRES_USER}
       password: ${POSTGRES_PASSWORD}
-      # https://node-postgres.com/features/ssl
-      # you can set the sslmode configuration option via the `PGSSLMODE` environment variable
-      # see https://www.postgresql.org/docs/current/libpq-ssl.html Table 33.1. SSL Mode Descriptions (e.g. require)
       # ssl:
-      #   ca: # if you have a CA file and want to verify it you can uncomment this section
+      #   ca:
       #     $file: <file-path>/ca/server.crt
 
 auth:
@@ -33,23 +25,14 @@ auth:
     guest: {}
 
 catalog:
-  # Overrides the default list locations from app-config.yaml as these contain example data.
-  # See https://backstage.io/docs/features/software-catalog/#adding-components-to-the-catalog for more details
-  # on how to get entities into the catalog.
+  # Production should include your real locations too; include the local template
+  # to keep behavior identical between dev and prod.
   locations:
-    # Local example data, replace this with your production config, these are intended for demo use only.
-    # File locations are relative to the backend process, typically in a deployed context, such as in a Docker container, this will be the root
     - type: file
-      target: ./examples/entities.yaml
-
-    # Local example template
-    - type: file
-      target: ./examples/template/template.yaml
+      target: ${APP_ROOT}/templates/nextjs-azure-template/template.yaml
       rules:
         - allow: [Template]
-
-    # Local example organizational data
     - type: file
-      target: ./examples/org.yaml
+      target: ${APP_ROOT}/examples/org.yaml
       rules:
         - allow: [User, Group]
