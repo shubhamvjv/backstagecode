@@ -1,0 +1,130 @@
+apiVersion: scaffolder.backstage.io/v1beta3
+kind: Template
+metadata:
+  name: nextjs-azure-template
+  title: Next.js App with Azure Deployment
+  description: Create a Next.js app with GitHub repo, CI/CD, and optional Azure deployment
+  tags:
+    - nextjs
+    - react
+    - azure
+    - typescript
+spec:
+  owner: user:default/guest
+  type: website
+
+  parameters:
+    - title: Provide Application Details
+      required: [name, owner, repoUrl]
+      properties:
+        name:
+          title: Name
+          type: string
+          description: Unique name of the Next.js application
+          ui:autofocus: true
+        description:
+          title: Description
+          type: string
+          description: A brief description of your application
+        owner:
+          title: Owner
+          type: string
+          description: Owner of the component
+          ui:field: OwnerPicker
+          ui:options:
+            catalogFilter:
+              kind: [Group, User]
+        repoUrl:
+          title: Repository Location
+          type: string
+          ui:field: RepoUrlPicker
+          ui:options:
+            allowedHosts:
+              - github.com
+
+    - title: Azure Deployment Configuration (optional)
+      required: []
+      properties:
+        azureWebAppName:
+          title: Azure Web App Name
+          type: string
+          description: Name for the Azure Web App (must be globally unique)
+        azureResourceGroup:
+          title: Azure Resource Group
+          type: string
+          description: Resource group for the Web App
+        azureRegion:
+          title: Azure Region
+          type: string
+          default: eastus
+          enum: [eastus, westus, westeurope, northeurope, southeastasia]
+
+  steps:
+    - id: fetch-base
+      name: Fetch Base Template
+      action: fetch:template
+      input:
+        url: ./skeleton
+        copyWithoutRender:
+          - '**/node_modules/**'
+          - '**/*.png'
+          - '**/*.jpg'
+          - '**/*.ico'
+          - '**/*.svg'
+          - '**/*.lock'
+          - '.yarn/**'
+          - 'public/**'
+          - 'next.config.js'
+          - 'postcss.config.js'
+          - 'tailwind.config.js'
+          - 'README.md'
+        values:
+          name: ${{ parameters.name }}
+          description: ${{ parameters.description }}
+          owner: ${{ parameters.owner }}
+          destination: ${{ parameters.repoUrl | parseRepoUrl }}
+          azureWebAppName: ${{ parameters.azureWebAppName }}
+          azureResourceGroup: ${{ parameters.azureResourceGroup }}
+          azureRegion: ${{ parameters.azureRegion }}
+
+    # Optional: generate lockfile during scaffolding if you do NOT pre-commit yarn.lock in the skeleton.
+    # Comment this step out if you keep yarn.lock inside the skeleton.
+    # - id: install-deps
+    #   name: Install dependencies (generate lockfile)
+    #   action: run:script
+    #   input:
+    #     workingDirectory: ${{ steps.fetch-base.output.target }}
+    #     script: |
+    #       corepack enable || true
+    #       corepack prepare yarn@stable --activate || true
+    #       yarn install --no-immutable
+
+    - id: publish
+      name: Publish to GitHub
+      action: publish:github
+      input:
+        description: ${{ parameters.description }}
+        repoUrl: ${{ parameters.repoUrl }}
+        defaultBranch: main
+        repoVisibility: public
+        deleteBranchOnMerge: true
+        gitCommitMessage: 'Initial commit from Backstage'
+        gitAuthorName: 'Backstage'
+        gitAuthorEmail: 'backstage@example.com'
+
+    - id: register
+      name: Register Component in Catalog
+      action: catalog:register
+      input:
+        repoContentsUrl: ${{ steps.publish.output.repoContentsUrl }}
+        catalogInfoPath: '/catalog-info.yaml'
+
+  output:
+    links:
+      - title: Repository
+        url: ${{ steps.publish.output.remoteUrl }}
+      - title: Open in catalog
+        icon: catalog
+        entityRef: ${{ steps.register.output.entityRef }}
+      - title: GitHub Actions
+        url: ${{ steps.publish.output.remoteUrl }}/actions

@@ -1,0 +1,88 @@
+name: Deploy to Azure Web App
+
+on:
+  push:
+    branches: [ "main" ]
+    paths:
+      - '**/*.ts'
+      - '**/*.tsx'
+      - 'package.json'
+      - 'yarn.lock'
+      - 'next.config.js'
+      - 'public/**'
+      - 'src/**'
+  workflow_dispatch: {}
+
+env:
+  AZURE_WEBAPP_NAME: ${{ secrets.AZURE_WEBAPP_NAME }}
+  AZURE_RG: ${{ secrets.AZURE_RESOURCE_GROUP }}
+  AZURE_REGION: ${{ secrets.AZURE_REGION }}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    outputs:
+      artifact-name: next-build
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20.x
+          cache: 'yarn'
+
+      - name: Install
+        run: yarn install --frozen-lockfile
+
+      - name: Build
+        env:
+          NODE_OPTIONS: --no-node-snapshot
+        run: yarn build
+
+      - name: Export (static) if applicable
+        if: ${{ false }} # set to true if you use "next export"
+        run: yarn next export
+
+      - name: Archive for deploy
+        run: |
+          tar -czf app.tar.gz .next package.json yarn.lock next.config.js public
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: next-build
+          path: app.tar.gz
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment: production
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Download artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: next-build
+          path: .
+
+      - name: Unpack
+        run: tar -xzf app.tar.gz
+
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Deploy to Azure Web App
+        uses: azure/webapps-deploy@v3
+        with:
+          app-name: ${{ env.AZURE_WEBAPP_NAME }}
+          package: .
+          slot-name: production
+
+      - name: Restart Web App
+        run: az webapp restart --name "$AZURE_WEBAPP_NAME" --resource-group "$AZURE_RG"
