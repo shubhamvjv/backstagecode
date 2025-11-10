@@ -1,6 +1,51 @@
-.yarn/
+Dependencies
 node_modules/
+package-lock.json
+pnpm-lock.yaml
 
+Yarn (avoid Plug'n'Play artifacts)
 .yarn/
+.yarnrc.yml
 
+Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+Next.js build output
+.next/
+out/
+
+Build caches
+.cache/
+dist/
+coverage/
+
+OS/filesystem noise
 .DS_Store
+Thumbs.db
+desktop.ini
+
+Env files
+.env
+.env.local
+.env.development
+.env.production
+.env.test
+
+IDE/editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+Local tooling
+.vercel/
+.now/
+firebase-debug.log
+.sass-cache/
+
+Temporary
+*.tmp
+*.temp
