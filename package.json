@@ -7,6 +7,7 @@
   },
   "scripts": {
     "start": "backstage-cli repo start",
+    "build": "backstage-cli repo build",
     "build:backend": "yarn workspace backend build",
     "build:all": "backstage-cli repo build --all",
     "build-image": "yarn workspace backend build-image",
@@ -32,9 +33,15 @@
     "@backstage/cli": "^0.34.4",
     "@backstage/e2e-test-utils": "^0.1.1",
     "@playwright/test": "^1.32.3",
+    "@types/loader-utils": "^3",
+    "@types/lodash": "^4",
+    "loader-utils": "1.4.2",
+    "lodash": "^4.17.21",
     "node-gyp": "^10.0.0",
     "prettier": "^2.3.2",
-    "typescript": "~5.8.0"
+    "raw-loader": "4.0.2",
+    "schema-utils": "2.7.1",
+    "typescript": "^5.6.3"
   },
   "resolutions": {
     "@types/react": "^18",
@@ -50,5 +57,10 @@
       "prettier --write"
     ]
   },
-  "packageManager": "yarn@4.4.1"
+  "packageManager": "yarn@4.4.1",
+  "dependencies": {
+    "@backstage/catalog-client": "^1.12.0",
+    "better-sqlite3": "^12.4.1",
+    "tweetnacl": "^1.0.3"
+  }
 }

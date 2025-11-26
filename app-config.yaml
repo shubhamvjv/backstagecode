@@ -16,8 +16,9 @@ backend:
     methods: [GET, HEAD, PATCH, POST, PUT, DELETE]
     credentials: true
   database:
-    client: sqlite3
-    connection: ':memory:'
+    client: better-sqlite3
+    connection:
+      directory: './.backstage-db'
 
 integrations:
   github:

@@ -3,63 +3,76 @@ kind: Template
 metadata:
   name: nextjs-azure-template
   title: Next.js App with Azure Deployment
-  description: Create a Next.js app with GitHub repo, CI/CD, and optional Azure deployment
+  description: Create a Next.js app with GitHub repo, CI/CD, and automatic Azure Web App provisioning.
   tags:
     - nextjs
     - react
     - azure
     - typescript
+    - terraform
+
 spec:
   owner: user:default/guest
   type: website
 
   parameters:
-    - title: Provide Application Details
-      required: [name, owner, repoUrl]
+    - title: Application Details
+      required: [name, owner, repo]
       properties:
         name:
-          title: Name
+          title: Application Name
           type: string
-          description: Unique name of the Next.js application
-          ui:autofocus: true
         description:
           title: Description
           type: string
-          description: A brief description of your application
         owner:
-          title: Owner
+          title: GitHub Owner / Organization
           type: string
-          description: Owner of the component
-          ui:field: OwnerPicker
-          ui:options:
-            catalogFilter:
-              kind: [Group, User]
-        repoUrl:
-          title: Repository Location
+        repo:
+          title: Repository Name
           type: string
-          ui:field: RepoUrlPicker
-          ui:options:
-            allowedHosts:
-              - github.com
 
-    - title: Azure Deployment Configuration (optional)
-      required: []
+    - title: Azure Deployment Details
+      required:
+        [
+          azureWebAppName,
+          azureResourceGroup,
+          azureRegion,
+          azureSubscriptionId,
+          azureTenantId,
+          azureClientId,
+          azureClientSecret,
+        ]
       properties:
         azureWebAppName:
-          title: Azure Web App Name
+          title: Azure Web App Name (Must be globally unique)
           type: string
-          description: Name for the Azure Web App (must be globally unique)
         azureResourceGroup:
           title: Azure Resource Group
           type: string
-          description: Resource group for the Web App
         azureRegion:
           title: Azure Region
           type: string
           default: eastus
           enum: [eastus, westus, westeurope, northeurope, southeastasia]
+        azureSubscriptionId:
+          title: Azure Subscription ID
+          type: string
+        azureTenantId:
+          title: Azure Tenant ID
+          type: string
+        azureClientId:
+          title: Azure Client ID
+          type: string
+        azureClientSecret:
+          title: Azure Client Secret
+          type: string
+          ui:widget: password
 
   steps:
+    # ---------------------------------------------
+    # Fetch Base Project (Next.js + Terraform folder)
+    # ---------------------------------------------
     - id: fetch-base
       name: Fetch Base Template
       action: fetch:template
@@ -67,60 +80,133 @@ spec:
         url: ./skeleton
         copyWithoutRender:
           - '**/node_modules/**'
+          - '**/.next/**'
+          - '**/dist/**'
+          - '**/build/**'
+          - '**/out/**'
           - '**/*.png'
           - '**/*.jpg'
           - '**/*.ico'
           - '.yarn/**'
-          - 'postcss.config.js'
-          - 'tailwind.config.js'
-          - 'README.md'
+          - '.github/workflows/**'
         values:
           name: ${{ parameters.name }}
           description: ${{ parameters.description }}
           owner: ${{ parameters.owner }}
-          destination: ${{ parameters.repoUrl | parseRepoUrl }}
+          destination: "https://github.com/${{ parameters.owner }}/${{ parameters.repo }}"
           azureWebAppName: ${{ parameters.azureWebAppName }}
           azureResourceGroup: ${{ parameters.azureResourceGroup }}
           azureRegion: ${{ parameters.azureRegion }}
 
-    # Optional: generate lockfile during scaffolding if you do NOT pre-commit yarn.lock in the skeleton.
-    # Comment this step out if you keep yarn.lock inside the skeleton.
-    # - id: install-deps
-    #   name: Install dependencies (generate lockfile)
-    #   action: run:script
-    #   input:
-    #     workingDirectory: ${{ steps.fetch-base.output.target }}
-    #     script: |
-    #       corepack enable || true
-    #       corepack prepare yarn@stable --activate || true
-    #       yarn install --no-immutable
+    # ---------------------------------------------
+    # 🚫 REMOVE Terraform variable generation
+    # ---------------------------------------------
+    # Terraform will be handled entirely in GitHub Actions
 
+    # ---------------------------------------------
+    # Publish repository
+    # ---------------------------------------------
     - id: publish
       name: Publish to GitHub
       action: publish:github
       input:
         description: ${{ parameters.description }}
-        repoUrl: ${{ parameters.repoUrl }}
+        repoUrl: "github.com?owner=${{ parameters.owner }}&repo=${{ parameters.repo }}"
         defaultBranch: main
         repoVisibility: public
         deleteBranchOnMerge: true
-        gitCommitMessage: 'Initial commit from Backstage'
-        gitAuthorName: 'Backstage'
-        gitAuthorEmail: 'backstage@example.com'
+        gitCommitMessage: "Initial commit from Backstage"
+        gitAuthorName: "Backstage"
+        gitAuthorEmail: "backstage@example.com"
 
+    # ---------------------------------------------
+    # Set GitHub Secrets
+    # ---------------------------------------------
+    - id: set-client-id
+      name: Set AZ_CLIENT_ID Secret
+      action: github:actions:set-secret
+      input:
+        repoUrl: "github.com/${{ parameters.owner }}/${{ parameters.repo }}"
+        secret: AZ_CLIENT_ID
+        value: ${{ parameters.azureClientId }}
+
+    - id: set-tenant-id
+      name: Set AZ_TENANT_ID Secret
+      action: github:actions:set-secret
+      input:
+        repoUrl: "github.com/${{ parameters.owner }}/${{ parameters.repo }}"
+        secret: AZ_TENANT_ID
+        value: ${{ parameters.azureTenantId }}
+
+    - id: set-subscription-id
+      name: Set AZ_SUBSCRIPTION_ID Secret
+      action: github:actions:set-secret
+      input:
+        repoUrl: "github.com/${{ parameters.owner }}/${{ parameters.repo }}"
+        secret: AZ_SUBSCRIPTION_ID
+        value: ${{ parameters.azureSubscriptionId }}
+
+    - id: set-client-secret
+      name: Set AZ_CLIENT_SECRET Secret
+      action: github:actions:set-secret
+      input:
+        repoUrl: "github.com/${{ parameters.owner }}/${{ parameters.repo }}"
+        secret: AZ_CLIENT_SECRET
+        value: ${{ parameters.azureClientSecret }}
+
+    - id: set-region
+      name: Set AZURE_REGION Secret
+      action: github:actions:set-secret
+      input:
+        repoUrl: "github.com/${{ parameters.owner }}/${{ parameters.repo }}"
+        secret: AZURE_REGION
+        value: ${{ parameters.azureRegion }}
+
+    - id: set-resource-group
+      name: Set AZURE_RESOURCE_GROUP Secret
+      action: github:actions:set-secret
+      input:
+        repoUrl: "github.com/${{ parameters.owner }}/${{ parameters.repo }}"
+        secret: AZURE_RESOURCE_GROUP
+        value: ${{ parameters.azureResourceGroup }}
+
+    - id: set-webapp-name
+      name: Set AZURE_WEBAPP_NAME Secret
+      action: github:actions:set-secret
+      input:
+        repoUrl: "github.com/${{ parameters.owner }}/${{ parameters.repo }}"
+        secret: AZURE_WEBAPP_NAME
+        value: ${{ parameters.azureWebAppName }}
+
+    # ---------------------------------------------
+    # Trigger GitHub deploy workflow
+    # ---------------------------------------------
+    - id: trigger-deploy-workflow
+      name: Trigger GitHub Deploy Workflow
+      action: github:actions:dispatch
+      input:
+        repoUrl: "github.com?owner=${{ parameters.owner }}&repo=${{ parameters.repo }}"
+        workflowId: deploy-azure.yml
+        branchOrTagName: main
+        workflowInputs:
+          webapp_name: ${{ parameters.azureWebAppName }}
+
+    # ---------------------------------------------
+    # Register component in Backstage
+    # ---------------------------------------------
     - id: register
       name: Register Component in Catalog
       action: catalog:register
       input:
         repoContentsUrl: ${{ steps.publish.output.repoContentsUrl }}
-        catalogInfoPath: '/catalog-info.yaml'
+        catalogInfoPath: "/catalog-info.yaml"
 
   output:
     links:
       - title: Repository
         url: ${{ steps.publish.output.remoteUrl }}
-      - title: Open in catalog
+      - title: Open in Catalog
         icon: catalog
         entityRef: ${{ steps.register.output.entityRef }}
-      - title: GitHub Actions
-        url: ${{ steps.publish.output.remoteUrl }}/actions
+      - title: Azure Web App
+        url: "https://${{ parameters.azureWebAppName }}.azurewebsites.net"

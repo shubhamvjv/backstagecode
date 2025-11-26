@@ -3,20 +3,23 @@ name: Deploy to Azure Web App
 on:
   push:
     branches: [ "main" ]
-    paths:
-      - '**/*.ts'
-      - '**/*.tsx'
-      - 'package.json'
-      - 'yarn.lock'
-      - 'next.config.js'
-      - 'public/**'
-      - 'src/**'
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs: 
+      webapp_name:
+        description: 'App Name (Optional)'
+        required: false
+        type: string
 
+# GLOBAL ENV: Escaped for Backstage processing
 env:
-  AZURE_WEBAPP_NAME: ${{ secrets.AZURE_WEBAPP_NAME }}
-  AZURE_RG: ${{ secrets.AZURE_RESOURCE_GROUP }}
-  AZURE_REGION: ${{ secrets.AZURE_REGION }}
+  # Logic: Use Input OR Secret. We use ${{ '${{' }} to trick Backstage.
+  AZURE_WEBAPP_NAME: ${{ '${{' }} github.event.inputs.webapp_name || secrets.AZURE_WEBAPP_NAME }}
+  AZURE_RG: ${{ '${{' }} secrets.AZURE_RESOURCE_GROUP }}
+  AZURE_REGION: ${{ '${{' }} secrets.AZURE_REGION }}
+  AZ_CLIENT_ID: ${{ '${{' }} secrets.AZ_CLIENT_ID }}
+  AZ_CLIENT_SECRET: ${{ '${{' }} secrets.AZ_CLIENT_SECRET }}
+  AZ_SUBSCRIPTION_ID: ${{ '${{' }} secrets.AZ_SUBSCRIPTION_ID }}
+  AZ_TENANT_ID: ${{ '${{' }} secrets.AZ_TENANT_ID }}
 
 jobs:
   build:
@@ -24,29 +27,52 @@ jobs:
     outputs:
       artifact-name: next-build
     steps:
+      - name: 🕵️ Debug Secret Presence
+        run: |
+          if [ -z "${{ '${{' }} secrets.AZ_CLIENT_ID }}" ]; then
+            echo "❌ ERROR: AZ_CLIENT_ID secret is MISSING or EMPTY."
+            exit 1
+          else
+            echo "✅ AZ_CLIENT_ID is present."
+          fi
+          
+          if [ -z "${{ '${{' }} secrets.AZURE_WEBAPP_NAME }}" ]; then
+            echo "⚠️ WARNING: AZURE_WEBAPP_NAME secret is missing."
+          else
+            echo "✅ AZURE_WEBAPP_NAME secret is present."
+          fi
+
       - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
         with:
           node-version: 20.x
-          cache: 'yarn'
+          cache: "yarn"
 
-      - name: Install
-        run: yarn install --frozen-lockfile
+      - name: Enable Corepack + Yarn Berry
+        run: |
+          corepack enable
+          corepack prepare yarn@stable --activate
 
-      - name: Build
+      - name: Install Dependencies
+        run: |
+          yarn config set nodeLinker node-modules
+          yarn config set enableImmutableInstalls false
+          yarn install
+
+      - name: Build Next.js
         env:
           NODE_OPTIONS: --no-node-snapshot
         run: yarn build
 
-      - name: Export (static) if applicable
-        if: ${{ false }} # set to true if you use "next export"
-        run: yarn next export
-
-      - name: Archive for deploy
+      - name: Archive for Deploy
         run: |
-          tar -czf app.tar.gz .next package.json yarn.lock next.config.js public
-      - name: Upload artifact
+          cp -r public ./.next/standalone/public
+          mkdir -p ./.next/standalone/.next/static
+          cp -r .next/static/* ./.next/standalone/.next/static/
+          tar -czf app.tar.gz -C ./.next/standalone .
+
+      - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
           name: next-build
@@ -55,32 +81,82 @@ jobs:
   deploy:
     needs: build
     runs-on: ubuntu-latest
-    environment: production
-    permissions:
-      contents: read
-      id-token: write
-
     steps:
-      - name: Download artifact
+      - uses: actions/checkout@v4
+
+      - name: Download Build Artifact
         uses: actions/download-artifact@v4
         with:
           name: next-build
-          path: .
 
-      - name: Unpack
+      - name: Unpack Artifact
         run: tar -xzf app.tar.gz
 
-      - name: Azure Login
-        uses: azure/login@v2
-        with:
-          client-id: ${{ secrets.AZURE_CLIENT_ID }}
-          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      - name: Azure CLI Login
+        run: |
+          az login --service-principal \
+            --username "$AZ_CLIENT_ID" \
+            --password "$AZ_CLIENT_SECRET" \
+            --tenant "$AZ_TENANT_ID"
+          az account set --subscription "$AZ_SUBSCRIPTION_ID"
 
+      # 👇👇👇 NEW STEP: CHECK IF APP EXISTS 👇👇👇
+      - name: Check if Web App Exists
+        id: check_app
+        run: |
+          # The logic: Try to show the app. 
+          # If it succeeds (exit code 0), it exists.
+          # If it fails (exit code 1), it doesn't exist.
+          if az webapp show --name "$AZURE_WEBAPP_NAME" --resource-group "$AZURE_RG"; then
+            echo "App exists! Skipping Terraform..."
+            echo "exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "App not found! Will run Terraform..."
+            echo "exists=false" >> $GITHUB_OUTPUT
+          fi
+
+      # -------------------------------
+      # 🟦 TERRAFORM SECTION (CONDITIONAL)
+      # -------------------------------
+      # We add 'if: ...' to ALL Terraform steps so they only run if the app is missing
+
+      - name: Setup Terraform
+        if: steps.check_app.outputs.exists == 'false'  # 👈 Only run if app is missing
+        uses: hashicorp/setup-terraform@v3
+
+      # Note: We also escape the env usage here just to be safe from Backstage
+      - name: Create terraform.tfvars
+        if: steps.check_app.outputs.exists == 'false'  # 👈 Only run if app is missing
+        run: |
+          mkdir -p terraform
+          cat <<EOF > terraform/terraform.tfvars
+          subscription_id     = "${{ '${{' }} env.AZ_SUBSCRIPTION_ID }}"
+          tenant_id           = "${{ '${{' }} env.AZ_TENANT_ID }}"
+          client_id           = "${{ '${{' }} env.AZ_CLIENT_ID }}"
+          client_secret       = "${{ '${{' }} env.AZ_CLIENT_SECRET }}"
+          resource_group_name = "${{ '${{' }} env.AZURE_RG }}"
+          location            = "${{ '${{' }} env.AZURE_REGION }}"
+          app_service_name    = "${{ '${{' }} env.AZURE_WEBAPP_NAME }}"
+          EOF
+
+      - name: Terraform Init
+        if: steps.check_app.outputs.exists == 'false'  # 👈 Only run if app is missing
+        working-directory: terraform
+        run: terraform init
+
+      - name: Terraform Apply
+        if: steps.check_app.outputs.exists == 'false'  # 👈 Only run if app is missing
+        working-directory: terraform
+        run: terraform apply -auto-approve
+
+      # -------------------------------
+      # 🚀 DEPLOY (ALWAYS RUNS)
+      # -------------------------------
+      # This runs regardless of whether Terraform ran or not
       - name: Deploy to Azure Web App
         uses: azure/webapps-deploy@v3
         with:
-          app-name: ${{ env.AZURE_WEBAPP_NAME }}
+          app-name: ${{ '${{' }} env.AZURE_WEBAPP_NAME }} 
           package: .
           slot-name: production
 
